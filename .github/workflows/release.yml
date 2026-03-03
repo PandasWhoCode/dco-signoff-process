@@ -1,18 +1,19 @@
-name: Build and Release
+name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
-  build:
-    name: Build and Release
+  test:
+    name: Test
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,20 +27,56 @@ jobs:
         working-directory: dcocheck
         run: go test ./...
 
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      new_release_published: ${{ steps.release.outputs.new_release_published }}
+      new_release_version: ${{ steps.release.outputs.new_release_version }}
+      new_release_git_tag: ${{ steps.release.outputs.new_release_git_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Semantic Release
+        id: release
+        uses: cycjimmy/semantic-release-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build and Upload Assets
+    runs-on: ubuntu-latest
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
       - name: Build binaries
+        env:
+          VERSION: ${{ needs.release.outputs.new_release_version }}
         run: |
           mkdir -p dist
           cd dcocheck
-          VERSION=${GITHUB_REF#refs/tags/v}
-          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
-          cd ../dist && tar -czf dcocheck-linux-amd64.tar.gz dcocheck && rm dcocheck
-          cd ../dcocheck
-          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
-          cd ../dist && tar -czf dcocheck-linux-arm64.tar.gz dcocheck && rm dcocheck
-          cd ../dcocheck
+          GOOS=linux  GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
+          cd ../dist && tar -czf dcocheck-linux-amd64.tar.gz dcocheck && rm dcocheck && cd ../dcocheck
+          GOOS=linux  GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
+          cd ../dist && tar -czf dcocheck-linux-arm64.tar.gz dcocheck && rm dcocheck && cd ../dcocheck
           GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
-          cd ../dist && tar -czf dcocheck-darwin-amd64.tar.gz dcocheck && rm dcocheck
-          cd ../dcocheck
+          cd ../dist && tar -czf dcocheck-darwin-amd64.tar.gz dcocheck && rm dcocheck && cd ../dcocheck
           GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
           cd ../dist && tar -czf dcocheck-darwin-arm64.tar.gz dcocheck && rm dcocheck
 
@@ -48,33 +85,30 @@ jobs:
           cd dist
           sha256sum dcocheck-*.tar.gz > checksums.txt
 
-      - name: Create Release and Upload Assets
+      - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref }}
-          name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
+          tag_name: ${{ needs.release.outputs.new_release_git_tag }}
           files: |
             dist/dcocheck-*.tar.gz
             dist/checksums.txt
 
-      - name: Update Homebrew Formula
+      - name: Update Homebrew formula
+        env:
+          VERSION: ${{ needs.release.outputs.new_release_version }}
+          TAG: ${{ needs.release.outputs.new_release_git_tag }}
         run: |
-          cd dist
-          VERSION=${GITHUB_REF#refs/tags/v}
-          DARWIN_AMD64_SHA=$(sha256sum dcocheck-darwin-amd64.tar.gz | awk '{print $1}')
-          DARWIN_ARM64_SHA=$(sha256sum dcocheck-darwin-arm64.tar.gz | awk '{print $1}')
-          LINUX_AMD64_SHA=$(sha256sum dcocheck-linux-amd64.tar.gz | awk '{print $1}')
-          LINUX_ARM64_SHA=$(sha256sum dcocheck-linux-arm64.tar.gz | awk '{print $1}')
-          cd ..
-          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/dcocheck.rb
-          sed -i "s/PLACEHOLDER_DARWIN_AMD64_SHA256/${DARWIN_AMD64_SHA}/" Formula/dcocheck.rb
-          sed -i "s/PLACEHOLDER_DARWIN_ARM64_SHA256/${DARWIN_ARM64_SHA}/" Formula/dcocheck.rb
-          sed -i "s/PLACEHOLDER_LINUX_AMD64_SHA256/${LINUX_AMD64_SHA}/" Formula/dcocheck.rb
-          sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${LINUX_ARM64_SHA}/" Formula/dcocheck.rb
-          git config user.name "github-actions[bot]"
+          DARWIN_AMD64_SHA=$(sha256sum dist/dcocheck-darwin-amd64.tar.gz | awk '{print $1}')
+          DARWIN_ARM64_SHA=$(sha256sum dist/dcocheck-darwin-arm64.tar.gz | awk '{print $1}')
+          LINUX_AMD64_SHA=$(sha256sum  dist/dcocheck-linux-amd64.tar.gz  | awk '{print $1}')
+          LINUX_ARM64_SHA=$(sha256sum  dist/dcocheck-linux-arm64.tar.gz  | awk '{print $1}')
+          sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/"                          Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # darwin-arm64/sha256 \"${DARWIN_ARM64_SHA}\" # darwin-arm64/" Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # darwin-amd64/sha256 \"${DARWIN_AMD64_SHA}\" # darwin-amd64/" Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # linux-arm64/sha256 \"${LINUX_ARM64_SHA}\" # linux-arm64/"   Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # linux-amd64/sha256 \"${LINUX_AMD64_SHA}\" # linux-amd64/"   Formula/dcocheck.rb
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/dcocheck.rb
-          git commit -m "chore: update Homebrew formula for v${VERSION}"
-          git push
+          git commit -m "chore(release): update Homebrew formula for ${TAG} [skip ci]"
+          git push origin HEAD:main
