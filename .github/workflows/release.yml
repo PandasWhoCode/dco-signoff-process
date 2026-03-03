@@ -1,0 +1,86 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run tests
+        working-directory: dcocheck
+        run: go test ./...
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          cd dcocheck
+          VERSION=${GITHUB_REF#refs/tags/v}
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
+          cd ../dist && tar -czf dcocheck-linux-amd64.tar.gz dcocheck && rm dcocheck
+          cd ../dcocheck
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
+          cd ../dist && tar -czf dcocheck-linux-arm64.tar.gz dcocheck && rm dcocheck
+          cd ../dcocheck
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
+          cd ../dist && tar -czf dcocheck-darwin-amd64.tar.gz dcocheck && rm dcocheck
+          cd ../dcocheck
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o ../dist/dcocheck ./cmd/dcocheck
+          cd ../dist && tar -czf dcocheck-darwin-arm64.tar.gz dcocheck && rm dcocheck
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum dcocheck-*.tar.gz > checksums.txt
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/dcocheck-*.tar.gz
+            dist/checksums.txt
+
+      - name: Update Homebrew Formula
+        run: |
+          cd dist
+          VERSION=${GITHUB_REF#refs/tags/v}
+          DARWIN_AMD64_SHA=$(sha256sum dcocheck-darwin-amd64.tar.gz | awk '{print $1}')
+          DARWIN_ARM64_SHA=$(sha256sum dcocheck-darwin-arm64.tar.gz | awk '{print $1}')
+          LINUX_AMD64_SHA=$(sha256sum dcocheck-linux-amd64.tar.gz | awk '{print $1}')
+          LINUX_ARM64_SHA=$(sha256sum dcocheck-linux-arm64.tar.gz | awk '{print $1}')
+          cd ..
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/dcocheck.rb
+          sed -i "s/PLACEHOLDER_DARWIN_AMD64_SHA256/${DARWIN_AMD64_SHA}/" Formula/dcocheck.rb
+          sed -i "s/PLACEHOLDER_DARWIN_ARM64_SHA256/${DARWIN_ARM64_SHA}/" Formula/dcocheck.rb
+          sed -i "s/PLACEHOLDER_LINUX_AMD64_SHA256/${LINUX_AMD64_SHA}/" Formula/dcocheck.rb
+          sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${LINUX_ARM64_SHA}/" Formula/dcocheck.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/dcocheck.rb
+          git commit -m "chore: update Homebrew formula for v${VERSION}"
+          git push

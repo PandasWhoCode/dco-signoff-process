@@ -1,0 +1,53 @@
+version: '3'
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the dcocheck binary
+    dir: dcocheck
+    cmds:
+      - go build -o ../bin/dcocheck ./cmd/dcocheck
+
+  test:
+    desc: Run all tests
+    dir: dcocheck
+    cmds:
+      - go test ./...
+
+  test-coverage:
+    desc: Run tests with coverage report
+    dir: dcocheck
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+      - go tool cover -func=coverage.out
+
+  lint:
+    desc: Run linter
+    dir: dcocheck
+    cmds:
+      - go vet ./...
+
+  tidy:
+    desc: Tidy go modules
+    dir: dcocheck
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf bin/ dcocheck/coverage.out dcocheck/coverage.html
+
+  build-all:
+    desc: Build for all platforms
+    dir: dcocheck
+    cmds:
+      - GOOS=linux GOARCH=amd64 go build -o ../dist/dcocheck-linux-amd64 ./cmd/dcocheck
+      - GOOS=linux GOARCH=arm64 go build -o ../dist/dcocheck-linux-arm64 ./cmd/dcocheck
+      - GOOS=darwin GOARCH=amd64 go build -o ../dist/dcocheck-darwin-amd64 ./cmd/dcocheck
+      - GOOS=darwin GOARCH=arm64 go build -o ../dist/dcocheck-darwin-arm64 ./cmd/dcocheck
