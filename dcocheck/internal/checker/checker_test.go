@@ -319,3 +319,36 @@ func TestAllOutput_WithData(t *testing.T) {
 		t.Error("expected non-empty output")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BuildRetroactiveCommitMessage
+// ---------------------------------------------------------------------------
+
+func TestBuildRetroactiveCommitMessage_NoCommits(t *testing.T) {
+	r := &Result{}
+	msg := r.BuildRetroactiveCommitMessage("Test User")
+	if !strings.Contains(msg, "I, Test User, retroactively sign off on these commits:") {
+		t.Errorf("expected header line, got: %s", msg)
+	}
+}
+
+func TestBuildRetroactiveCommitMessage_WithCommits(t *testing.T) {
+	r := &Result{
+		CommitsWithoutDCO: []git.Commit{
+			{Hash: "abcdef1234567890", Subject: "feat: new thing"},
+			{Hash: "abc1234", Subject: "fix: bug"},
+		},
+	}
+	msg := r.BuildRetroactiveCommitMessage("Alice Smith")
+	if !strings.Contains(msg, "I, Alice Smith, retroactively sign off on these commits:") {
+		t.Errorf("expected header, got: %s", msg)
+	}
+	// Long hash: first 8 chars
+	if !strings.Contains(msg, "commit abcdef12 feat: new thing") {
+		t.Errorf("expected truncated hash line, got: %s", msg)
+	}
+	// Short hash (≤8 chars): kept as-is
+	if !strings.Contains(msg, "commit abc1234 fix: bug") {
+		t.Errorf("expected short hash line, got: %s", msg)
+	}
+}

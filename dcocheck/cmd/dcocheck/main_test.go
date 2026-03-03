@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -76,7 +77,7 @@ func TestRun_Help(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"--help"}, outW, errW)
+	code := run([]string{"--help"}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -94,7 +95,7 @@ func TestRun_ShortHelp(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"-h"}, outW, errW)
+	code := run([]string{"-h"}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	if code != 0 {
 		t.Errorf("expected exit code 0, got %d", code)
@@ -107,7 +108,7 @@ func TestRun_Version(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"--version"}, outW, errW)
+	code := run([]string{"--version"}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -125,7 +126,7 @@ func TestRun_ShortVersion(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"-v"}, outW, errW)
+	code := run([]string{"-v"}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	if code != 0 {
 		t.Errorf("expected exit code 0, got %d", code)
@@ -138,7 +139,7 @@ func TestRun_InvalidRepo(t *testing.T) {
 	defer outR.Close()
 	defer errR.Close()
 
-	code := run([]string{"/tmp/no-such-repo-dcocheck-xyz"}, outW, errW)
+	code := run([]string{"/tmp/no-such-repo-dcocheck-xyz"}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -159,7 +160,7 @@ func TestRun_AllCommitsHaveDCO(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{dir}, outW, errW)
+	code := run([]string{dir}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -172,7 +173,7 @@ func TestRun_AllCommitsHaveDCO(t *testing.T) {
 	}
 }
 
-func TestRun_CommitsWithoutDCO(t *testing.T) {
+func TestRun_CommitsWithoutDCO_NonInteractive(t *testing.T) {
 	dir := initRepo(t)
 	addCommit(t, dir, "a.txt", "feat: no signoff")
 
@@ -180,7 +181,8 @@ func TestRun_CommitsWithoutDCO(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{dir}, outW, errW)
+	// Default isInteractiveFn returns false in test environment
+	code := run([]string{dir}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -193,6 +195,11 @@ func TestRun_CommitsWithoutDCO(t *testing.T) {
 	}
 }
 
+// TestRun_CommitsWithoutDCO is an alias kept for backward compat of naming.
+func TestRun_CommitsWithoutDCO(t *testing.T) {
+	TestRun_CommitsWithoutDCO_NonInteractive(t)
+}
+
 func TestRun_DryRun(t *testing.T) {
 	dir := initRepo(t)
 	addCommit(t, dir, "a.txt", "feat: no signoff")
@@ -201,7 +208,7 @@ func TestRun_DryRun(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"--dry-run", dir}, outW, errW)
+	code := run([]string{"--dry-run", dir}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -222,7 +229,7 @@ func TestRun_ShortDryRun(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"-d", dir}, outW, errW)
+	code := run([]string{"-d", dir}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -247,7 +254,7 @@ func TestRun_OutputFile(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"--output", tmpFile.Name(), dir}, outW, errW)
+	code := run([]string{"--output", tmpFile.Name(), dir}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -284,7 +291,7 @@ func TestRun_ShortOutputFile(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"-o", tmpFile.Name(), dir}, outW, errW)
+	code := run([]string{"-o", tmpFile.Name(), dir}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	if code != 1 {
 		t.Errorf("expected exit code 1, got %d", code)
@@ -301,7 +308,7 @@ func TestRun_OutputFileError(t *testing.T) {
 	defer errR.Close()
 
 	// Use an invalid path
-	code := run([]string{"--output", "/no/such/dir/file.txt", dir}, outW, errW)
+	code := run([]string{"--output", "/no/such/dir/file.txt", dir}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -319,7 +326,7 @@ func TestRun_InvalidFlag(t *testing.T) {
 	defer outR.Close()
 	defer errW.Close()
 
-	code := run([]string{"--unknown-flag"}, outW, errW)
+	code := run([]string{"--unknown-flag"}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
@@ -335,12 +342,204 @@ func TestRun_DefaultPath(t *testing.T) {
 	defer outR.Close()
 	defer errR.Close()
 
-	code := run([]string{}, outW, errW)
+	code := run([]string{}, outW, errW, strings.NewReader(""))
 	outW.Close()
 	errW.Close()
 
 	_ = code // 0, 1, or 2 depending on environment
 	_ = readPipe(outR)
+}
+
+// ---------------------------------------------------------------------------
+// Interactive retroactive sign-off via promptRetroactiveSignoff
+// ---------------------------------------------------------------------------
+
+// withInteractive sets isInteractiveFn to always return true for the duration
+// of the test, then restores the original.
+func withInteractive(t *testing.T) {
+	t.Helper()
+	orig := isInteractiveFn
+	isInteractiveFn = func() bool { return true }
+	t.Cleanup(func() { isInteractiveFn = orig })
+}
+
+// withMockCreateCommit replaces createRetroactiveSignoffCommitFn with a
+// function that returns the supplied error (nil = success).
+func withMockCreateCommit(t *testing.T, retErr error) {
+	t.Helper()
+	orig := createRetroactiveSignoffCommitFn
+	createRetroactiveSignoffCommitFn = func(_, _ string) error { return retErr }
+	t.Cleanup(func() { createRetroactiveSignoffCommitFn = orig })
+}
+
+// withMockGetUserName replaces getGitUserNameFn with a function that returns
+// the supplied name/error pair.
+func withMockGetUserName(t *testing.T, name string, retErr error) {
+	t.Helper()
+	orig := getGitUserNameFn
+	getGitUserNameFn = func(_ string) (string, error) { return name, retErr }
+	t.Cleanup(func() { getGitUserNameFn = orig })
+}
+
+func TestRun_SignoffYes(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	withInteractive(t)
+	withMockGetUserName(t, "Test User", nil)
+	withMockCreateCommit(t, nil)
+
+	outR, outW, _, errW := captureFiles(t)
+	defer outR.Close()
+	defer errW.Close()
+
+	code := run([]string{dir}, outW, errW, strings.NewReader("y\n"))
+	outW.Close()
+	errW.Close()
+
+	if code != 0 {
+		t.Errorf("expected exit code 0 for successful sign-off, got %d", code)
+	}
+	output := readPipe(outR)
+	if !strings.Contains(output, "Retroactive DCO sign-off commit created successfully") {
+		t.Errorf("expected success message, got: %s", output)
+	}
+}
+
+func TestRun_SignoffUpperY(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	withInteractive(t)
+	withMockGetUserName(t, "Test User", nil)
+	withMockCreateCommit(t, nil)
+
+	outR, outW, _, errW := captureFiles(t)
+	defer outR.Close()
+	defer errW.Close()
+
+	code := run([]string{dir}, outW, errW, strings.NewReader("Y\n"))
+	outW.Close()
+	errW.Close()
+
+	if code != 0 {
+		t.Errorf("expected exit code 0 for uppercase Y, got %d", code)
+	}
+	_ = readPipe(outR)
+}
+
+func TestRun_SignoffNo(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	withInteractive(t)
+
+	outR, outW, _, errW := captureFiles(t)
+	defer outR.Close()
+	defer errW.Close()
+
+	code := run([]string{dir}, outW, errW, strings.NewReader("n\n"))
+	outW.Close()
+	errW.Close()
+
+	if code != 1 {
+		t.Errorf("expected exit code 1 for declined sign-off, got %d", code)
+	}
+	output := readPipe(outR)
+	if !strings.Contains(output, "Skipping retroactive sign-off") {
+		t.Errorf("expected skip message, got: %s", output)
+	}
+}
+
+func TestRun_SignoffEmptyInput(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	withInteractive(t)
+
+	outR, outW, _, errW := captureFiles(t)
+	defer outR.Close()
+	defer errW.Close()
+
+	// Empty input (just Enter) should be treated as "no"
+	code := run([]string{dir}, outW, errW, strings.NewReader("\n"))
+	outW.Close()
+	errW.Close()
+
+	if code != 1 {
+		t.Errorf("expected exit code 1 for empty input, got %d", code)
+	}
+	_ = readPipe(outR)
+}
+
+func TestRun_SignoffEOF(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	withInteractive(t)
+
+	outR, outW, _, errW := captureFiles(t)
+	defer outR.Close()
+	defer errW.Close()
+
+	// Closed reader simulates EOF on stdin
+	code := run([]string{dir}, outW, errW, strings.NewReader(""))
+	outW.Close()
+	errW.Close()
+
+	if code != 1 {
+		t.Errorf("expected exit code 1 on stdin EOF, got %d", code)
+	}
+	_ = readPipe(outR)
+}
+
+func TestRun_SignoffGetUserNameError(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	withInteractive(t)
+	withMockGetUserName(t, "", errors.New("git user.name not set"))
+
+	outR, outW, errR, errW := captureFiles(t)
+	defer outR.Close()
+	defer errR.Close()
+
+	code := run([]string{dir}, outW, errW, strings.NewReader("y\n"))
+	outW.Close()
+	errW.Close()
+
+	if code != 2 {
+		t.Errorf("expected exit code 2 when user name lookup fails, got %d", code)
+	}
+	errOut := readPipe(errR)
+	if !strings.Contains(errOut, "failed to get git user name") {
+		t.Errorf("expected user name error, got: %s", errOut)
+	}
+}
+
+func TestRun_SignoffCommitError(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	withInteractive(t)
+	withMockGetUserName(t, "Test User", nil)
+	withMockCreateCommit(t, errors.New("gpg: no secret key"))
+
+	outR, outW, errR, errW := captureFiles(t)
+	defer outR.Close()
+	defer errR.Close()
+
+	code := run([]string{dir}, outW, errW, strings.NewReader("y\n"))
+	outW.Close()
+	errW.Close()
+
+	if code != 2 {
+		t.Errorf("expected exit code 2 when commit creation fails, got %d", code)
+	}
+	errOut := readPipe(errR)
+	if !strings.Contains(errOut, "Error") {
+		t.Errorf("expected error message, got: %s", errOut)
+	}
 }
 
 // ---------------------------------------------------------------------------

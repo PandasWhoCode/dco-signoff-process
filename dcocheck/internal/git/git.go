@@ -88,6 +88,32 @@ func GetCommitDetails(repoPath, hash string) (string, error) {
 	return string(out), nil
 }
 
+// GetGitUserName returns the user.name configured in the git repository.
+func GetGitUserName(repoPath string) (string, error) {
+	clean := filepath.Clean(repoPath)
+	// #nosec G204 - repoPath is validated as a git repo before this is called
+	cmd := exec.Command("git", "-C", clean, "config", "user.name")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git user.name: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// CreateRetroactiveSignoffCommit creates a GPG-signed empty commit carrying the
+// retroactive DCO sign-off message. Requires the user to have a GPG key
+// configured (git commit.gpgsign or -S).
+func CreateRetroactiveSignoffCommit(repoPath, message string) error {
+	clean := filepath.Clean(repoPath)
+	// #nosec G204 - message is generated internally from validated commit data
+	cmd := exec.Command("git", "-C", clean, "commit", "-s", "-S", "--allow-empty", "-m", message)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to create retroactive signoff commit: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // isValidHash checks that a string is a valid full or short git commit hash
 func isValidHash(hash string) bool {
 	if len(hash) < 7 || len(hash) > 64 {

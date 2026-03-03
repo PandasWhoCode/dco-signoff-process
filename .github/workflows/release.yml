@@ -52,11 +52,30 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Semantic Release
+      - name: Install semantic-release
+        run: |
+          npm install --no-save \
+            semantic-release \
+            @semantic-release/commit-analyzer \
+            @semantic-release/release-notes-generator \
+            @semantic-release/github
+
+      - name: Run Semantic Release
         id: release
-        uses: cycjimmy/semantic-release-action@16ca923e6ccbb50770c415a0ccd43709a8c5f7a4 # v4.2.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          npx --no-install semantic-release 2>&1 | tee /tmp/sr-output.txt
+          NEW_VERSION=$(grep -oE "Published release [0-9]+\.[0-9]+\.[0-9]+" /tmp/sr-output.txt | tail -1 | awk '{print $3}')
+          if [ -n "$NEW_VERSION" ]; then
+            NEW_TAG="v${NEW_VERSION}"
+            echo "new_release_published=true"          >> "$GITHUB_OUTPUT"
+            echo "new_release_version=${NEW_VERSION}"  >> "$GITHUB_OUTPUT"
+            echo "new_release_git_tag=${NEW_TAG}"      >> "$GITHUB_OUTPUT"
+          else
+            echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+          fi
 
   build:
     name: Build and Upload Assets

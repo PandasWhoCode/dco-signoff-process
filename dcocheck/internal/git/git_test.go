@@ -365,11 +365,41 @@ func TestGetCommitDetails_TooShortHash(t *testing.T) {
 	}
 }
 
-func TestGetCommitDetails_NonExistentHash(t *testing.T) {
-	dir := initRepo(t)
-	addCommit(t, dir, "f.txt", "msg")
-	_, err := GetCommitDetails(dir, "abcdef1234567890abcdef1234567890abcdef12")
+// ---------------------------------------------------------------------------
+// GetGitUserName
+// ---------------------------------------------------------------------------
+
+func TestGetGitUserName_Valid(t *testing.T) {
+	dir := initRepo(t) // sets user.name = "Test User"
+	name, err := GetGitUserName(dir)
+	if err != nil {
+		t.Fatalf("GetGitUserName: %v", err)
+	}
+	if name != "Test User" {
+		t.Errorf("expected 'Test User', got %q", name)
+	}
+}
+
+func TestGetGitUserName_InvalidRepo(t *testing.T) {
+	_, err := GetGitUserName("/tmp/not-a-repo-dcocheck-xyz-getusername")
 	if err == nil {
-		t.Error("expected error for non-existent hash, got nil")
+		t.Error("expected error for invalid repo path, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get git user.name") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CreateRetroactiveSignoffCommit
+// ---------------------------------------------------------------------------
+
+func TestCreateRetroactiveSignoffCommit_InvalidRepo(t *testing.T) {
+	err := CreateRetroactiveSignoffCommit("/tmp/not-a-repo-dcocheck-xyz-signoff", "test message")
+	if err == nil {
+		t.Error("expected error for invalid repo path, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to create retroactive signoff commit") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }

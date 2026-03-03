@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/PandasWhoCode/dco-signoff-process/dcocheck/internal/checker"
+	"github.com/PandasWhoCode/dco-signoff-process/dcocheck/internal/git"
 	"github.com/PandasWhoCode/dco-signoff-process/dcocheck/internal/pager"
 )
 
@@ -29,11 +33,13 @@ OPTIONS:
 DESCRIPTION:
     dcocheck scans a git repository for commits missing Developer Certificate
     of Origin (DCO) sign-off (Signed-off-by: trailer). It displays a pageable
-    list of commits requiring retroactive sign-off.
+    list of commits requiring retroactive sign-off and, when running
+    interactively, offers to create a GPG-signed empty commit that performs
+    the retroactive sign-off in one step.
 
     Results include:
       - Summary of unique authors with missing sign-off
-      - Summary of commits missing sign-off  
+      - Summary of commits missing sign-off
       - DCO retroactive message format (for use in git commit message)
       - Full commit log history for affected commits
 
@@ -44,12 +50,25 @@ EXAMPLES:
     dcocheck --output results.txt /path/to/repo
 
 EXIT CODES:
-    0    No DCO issues found (or --dry-run mode)
-    1    DCO issues found
+    0    No DCO issues found, or retroactive sign-off commit created, or --dry-run
+    1    DCO issues found (no sign-off performed)
     2    Error occurred
 `
 
-func run(args []string, stdout, stderr *os.File) int {
+// isInteractiveFn reports whether the session is interactive (stdout is a
+// terminal). Replaced in tests to exercise the interactive code paths.
+var isInteractiveFn = func() bool { return pager.IsTerminal() }
+
+// getGitUserNameFn is the function used to retrieve the git user.name.
+// Replaced in tests to exercise error and success paths without real git.
+var getGitUserNameFn = git.GetGitUserName
+
+// createRetroactiveSignoffCommitFn is the function used to create the
+// retroactive sign-off commit. Replaced in tests to exercise error and
+// success paths without requiring a GPG key.
+var createRetroactiveSignoffCommitFn = git.CreateRetroactiveSignoffCommit
+
+func run(args []string, stdout, stderr *os.File, stdin io.Reader) int {
 	fs := flag.NewFlagSet("dcocheck", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -132,7 +151,50 @@ func run(args []string, stdout, stderr *os.File) int {
 		return 0
 	}
 
+	// Offer retroactive sign-off when running in an interactive terminal
+	if isInteractiveFn() {
+		return promptRetroactiveSignoff(stdin, stdout, stderr, result, repoPath)
+	}
+
 	return 1
+}
+
+// promptRetroactiveSignoff asks the user whether to create a GPG-signed empty
+// commit that retroactively signs off all listed commits. It returns 0 on
+// success, 1 if the user declines, and 2 on error.
+func promptRetroactiveSignoff(stdin io.Reader, stdout, stderr io.Writer, result *checker.Result, repoPath string) int {
+	fmt.Fprintf(stdout, "\nWould you like to perform retroactive DCO sign-off for the listed commits? [y/N]: ")
+
+	reader := bufio.NewReader(stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		// EOF or read error – treat as "no"
+		fmt.Fprintln(stdout)
+		return 1
+	}
+	input = strings.TrimSpace(input)
+
+	if !strings.EqualFold(input, "y") {
+		fmt.Fprintf(stdout, "Skipping retroactive sign-off.\n")
+		return 1
+	}
+
+	// Retrieve the committer's name from git config
+	userName, err := getGitUserNameFn(repoPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: failed to get git user name: %v\n", err)
+		return 2
+	}
+
+	// Build the commit message and create the empty signed commit
+	msg := result.BuildRetroactiveCommitMessage(userName)
+	if err := createRetroactiveSignoffCommitFn(repoPath, msg); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 2
+	}
+
+	fmt.Fprintf(stdout, "✓ Retroactive DCO sign-off commit created successfully.\n")
+	return 0
 }
 
 func writeToFile(path string, lines []string) error {
@@ -152,5 +214,5 @@ func writeToFile(path string, lines []string) error {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Stdin))
 }

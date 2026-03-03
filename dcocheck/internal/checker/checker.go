@@ -125,6 +125,21 @@ func (r *Result) FormatFullCommitLog(repoPath string) []string {
 	return lines
 }
 
+// BuildRetroactiveCommitMessage builds the commit message body for a retroactive
+// DCO sign-off empty commit. gitUserName should be the value of `git config user.name`.
+func (r *Result) BuildRetroactiveCommitMessage(gitUserName string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("I, %s, retroactively sign off on these commits:\n\n", gitUserName))
+	for _, c := range r.CommitsWithoutDCO {
+		shortHash := c.Hash
+		if len(shortHash) > 8 {
+			shortHash = shortHash[:8]
+		}
+		sb.WriteString(fmt.Sprintf("commit %s %s\n", shortHash, c.Subject))
+	}
+	return sb.String()
+}
+
 // AllOutput returns all output sections combined
 func (r *Result) AllOutput(repoPath string) []string {
 	var all []string
