@@ -95,8 +95,8 @@ func TestIsValidHash(t *testing.T) {
 	}{
 		{"abc1234", true},                                                          // min length 7
 		{"abc1234def5678901234567890123456789012345", true},                        // 41 chars
-		{"abc1234def567890123456789012345678901234567890123456789012345678", true},  // 63 chars
-		{"abc1234def5678901234567890123456789012345678901234567890123456789", false}, // 65 chars
+		{"abc1234def567890123456789012345678901234567890123456789012345678", true},  // 64 chars
+		{"abc1234def5678901234567890123456789012345678901234567890123456789", false}, // 65 chars (too long)
 		{"abc123", false},   // too short (6)
 		{"abc123g", false},  // non-hex char 'g'
 		{"ABC1234", true},   // uppercase hex
