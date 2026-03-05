@@ -100,8 +100,23 @@ jobs:
             dist/dcocheck-*.tar.gz
             dist/checksums.txt
 
-      - name: Update Homebrew formula
-        env:
-          HOMEBREW_TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
-        run: task update-formula VERSION=${{ needs.release.outputs.new_release_version }} TAG=${{ needs.release.outputs.new_release_git_tag }} HOMEBREW_TAP_PAT="${HOMEBREW_TAP_PAT}"
+      - name: Check out homebrew-tools tap
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: PandasWhoCode/homebrew-tools
+          token: ${{ secrets.HOMEBREW_TAP_PAT }}
+          path: homebrew-tools
 
+      - name: Update Homebrew formula
+        run: task update-formula VERSION=${{ needs.release.outputs.new_release_version }} TAG=${{ needs.release.outputs.new_release_git_tag }}
+
+      - name: Push Homebrew formula update
+        env:
+          TAG: ${{ needs.release.outputs.new_release_git_tag }}
+        run: |
+          cd homebrew-tools
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/dcocheck.rb
+          git commit -m "chore(release): update dcocheck formula for ${TAG} [skip ci]"
+          git push origin HEAD:main
