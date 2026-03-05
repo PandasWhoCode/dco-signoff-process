@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Go 1.21+** – [Download](https://go.dev/dl/)
+- **Go 1.25+** – [Download](https://go.dev/dl/)
 - **Git** – Required for all DCO checking functionality
 - **Task** (optional) – [taskfile.dev](https://taskfile.dev/) for convenience task runner
 

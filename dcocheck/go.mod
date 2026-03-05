@@ -1,6 +1,6 @@
 module github.com/PandasWhoCode/dco-signoff-process/dcocheck
 
-go 1.21
+go 1.25
 
 require golang.org/x/term v0.17.0
 
