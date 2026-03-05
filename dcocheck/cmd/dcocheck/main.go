@@ -1,0 +1,222 @@
+package main
+
+import (
+	"bufio"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/PandasWhoCode/dco-signoff-process/dcocheck/internal/checker"
+	"github.com/PandasWhoCode/dco-signoff-process/dcocheck/internal/git"
+	"github.com/PandasWhoCode/dco-signoff-process/dcocheck/internal/pager"
+)
+
+const version = "1.0.0"
+
+const helpText = `dcocheck - DCO Sign-off Checker
+
+USAGE:
+    dcocheck [OPTIONS] [PATH]
+
+ARGUMENTS:
+    PATH    Path to the git repository to check (default: current directory)
+
+OPTIONS:
+    -d, --dry-run    Show results without prompting for commit creation
+    -o, --output     Write results to the specified file
+    -h, --help       Show this help message
+    -v, --version    Show version information
+
+DESCRIPTION:
+    dcocheck scans a git repository for commits missing Developer Certificate
+    of Origin (DCO) sign-off (Signed-off-by: trailer). It displays a pageable
+    list of commits requiring retroactive sign-off and, when running
+    interactively, offers to create a GPG-signed empty commit that performs
+    the retroactive sign-off in one step.
+
+    Results include:
+      - Summary of unique authors with missing sign-off
+      - Summary of commits missing sign-off
+      - DCO retroactive message format (for use in git commit message)
+      - Full commit log history for affected commits
+
+EXAMPLES:
+    dcocheck .
+    dcocheck /path/to/repo
+    dcocheck --dry-run /path/to/repo
+    dcocheck --output results.txt /path/to/repo
+
+EXIT CODES:
+    0    No DCO issues found, or retroactive sign-off commit created, or --dry-run
+    1    DCO issues found (no sign-off performed)
+    2    Error occurred
+`
+
+// isInteractiveFn reports whether the session is interactive (stdout is a
+// terminal). Replaced in tests to exercise the interactive code paths.
+var isInteractiveFn = func() bool { return pager.IsTerminal() }
+
+// getGitUserNameFn is the function used to retrieve the git user.name.
+// Replaced in tests to exercise error and success paths without real git.
+var getGitUserNameFn = git.GetGitUserName
+
+// createRetroactiveSignoffCommitFn is the function used to create the
+// retroactive sign-off commit. Replaced in tests to exercise error and
+// success paths without requiring a GPG key.
+var createRetroactiveSignoffCommitFn = git.CreateRetroactiveSignoffCommit
+
+// osExit is the function used to terminate the process. Replaced in tests to
+// prevent os.Exit from killing the test binary.
+var osExit = os.Exit
+
+func run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
+	fs := flag.NewFlagSet("dcocheck", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var (
+		dryRun     bool
+		outputFile string
+		showHelp   bool
+		showVer    bool
+	)
+
+	// Support both short and long flags
+	fs.BoolVar(&dryRun, "d", false, "dry run")
+	fs.BoolVar(&dryRun, "dry-run", false, "dry run")
+	fs.StringVar(&outputFile, "o", "", "output file")
+	fs.StringVar(&outputFile, "output", "", "output file")
+	fs.BoolVar(&showHelp, "h", false, "show help")
+	fs.BoolVar(&showHelp, "help", false, "show help")
+	fs.BoolVar(&showVer, "v", false, "show version")
+	fs.BoolVar(&showVer, "version", false, "show version")
+
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	if showHelp {
+		fmt.Fprint(stdout, helpText)
+		return 0
+	}
+
+	if showVer {
+		fmt.Fprintf(stdout, "dcocheck version %s\n", version)
+		return 0
+	}
+
+	// Determine repo path
+	repoPath := "."
+	if fs.NArg() > 0 {
+		repoPath = fs.Arg(0)
+	}
+	repoPath = filepath.Clean(repoPath)
+
+	// Run the check
+	opts := checker.Options{DryRun: dryRun}
+	result, err := checker.Check(repoPath, opts)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 2
+	}
+
+	if len(result.CommitsWithoutDCO) == 0 {
+		fmt.Fprintf(stdout, "✓ All %d commits have DCO sign-off. No issues found.\n", result.TotalCommits)
+		return 0
+	}
+
+	// Print summary header
+	fmt.Fprintf(stdout, "Found %d commit(s) without DCO sign-off (out of %d total commits)\n\n",
+		len(result.CommitsWithoutDCO), result.TotalCommits)
+
+	// Get all output lines
+	allLines := result.AllOutput(repoPath)
+
+	// Write to file if requested
+	if outputFile != "" {
+		if err := writeToFile(outputFile, allLines); err != nil {
+			fmt.Fprintf(stderr, "Error writing to file: %v\n", err)
+			return 2
+		}
+		fmt.Fprintf(stdout, "Results written to: %s\n\n", outputFile)
+	}
+
+	// Display in terminal (pageable if interactive)
+	interactive := pager.IsTerminal() && !dryRun
+	if err := pager.Display(allLines, stdout, interactive); err != nil {
+		fmt.Fprintf(stderr, "Error displaying output: %v\n", err)
+		return 2
+	}
+
+	if dryRun {
+		fmt.Fprintf(stdout, "\n[dry-run] Exiting without creating retroactive commit.\n")
+		return 0
+	}
+
+	// Offer retroactive sign-off when running in an interactive terminal
+	if isInteractiveFn() {
+		return promptRetroactiveSignoff(stdin, stdout, stderr, result, repoPath)
+	}
+
+	return 1
+}
+
+// promptRetroactiveSignoff asks the user whether to create a GPG-signed empty
+// commit that retroactively signs off all listed commits. It returns 0 on
+// success, 1 if the user declines, and 2 on error.
+func promptRetroactiveSignoff(stdin io.Reader, stdout, stderr io.Writer, result *checker.Result, repoPath string) int {
+	fmt.Fprintf(stdout, "\nWould you like to perform retroactive DCO sign-off for the listed commits? [y/N]: ")
+
+	reader := bufio.NewReader(stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		// EOF or read error – treat as "no"
+		fmt.Fprintln(stdout)
+		return 1
+	}
+	input = strings.TrimSpace(input)
+
+	if !strings.EqualFold(input, "y") {
+		fmt.Fprintf(stdout, "Skipping retroactive sign-off.\n")
+		return 1
+	}
+
+	// Retrieve the committer's name from git config
+	userName, err := getGitUserNameFn(repoPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: failed to get git user name: %v\n", err)
+		return 2
+	}
+
+	// Build the commit message and create the empty signed commit
+	msg := result.BuildRetroactiveCommitMessage(userName)
+	if err := createRetroactiveSignoffCommitFn(repoPath, msg); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 2
+	}
+
+	fmt.Fprintf(stdout, "✓ Retroactive DCO sign-off commit created successfully.\n")
+	return 0
+}
+
+func writeToFile(path string, lines []string) error {
+	// #nosec G304 - path is user-provided output file, intended
+	f, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open output file %s: %w", path, err)
+	}
+	defer f.Close()
+
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(f, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func main() {
+	osExit(run(os.Args[1:], os.Stdout, os.Stderr, os.Stdin))
+}

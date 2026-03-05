@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare GitHub Job
+        uses: PandasWhoCode/initialize-github-job@a57cd6d8d768b2f3c95334bdd4fa8c21609fc651 # v1.0.5
+        with:
+          checkout: 'true'
+          checkout-token: '${{ secrets.GITHUB_TOKEN }}'
+          setup-go: 'true'
+          go-version: '1.25'
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: Run tests
+        run: task test
+
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      new_release_published: ${{ steps.release.outputs.new_release_published }}
+      new_release_version: ${{ steps.release.outputs.new_release_version }}
+      new_release_git_tag: ${{ steps.release.outputs.new_release_git_tag }}
+    steps:
+      - name: Prepare GitHub Job
+        uses: PandasWhoCode/initialize-github-job@a57cd6d8d768b2f3c95334bdd4fa8c21609fc651 # v1.0.5
+        with:
+          checkout: 'true'
+          checkout-token: '${{ secrets.GITHUB_TOKEN }}'
+
+      - name: Fetch full history
+        run: git fetch --unshallow || true
+
+      - name: Install semantic-release
+        run: |
+          npm install --no-save \
+            semantic-release \
+            @semantic-release/commit-analyzer \
+            @semantic-release/release-notes-generator \
+            @semantic-release/github
+
+      - name: Run Semantic Release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          npx --no-install semantic-release 2>&1 | tee /tmp/sr-output.txt
+          NEW_VERSION=$(grep -oE "Published release [0-9]+\.[0-9]+\.[0-9]+" /tmp/sr-output.txt | tail -1 | awk '{print $3}')
+          if [ -n "$NEW_VERSION" ]; then
+            NEW_TAG="v${NEW_VERSION}"
+            echo "new_release_published=true"          >> "$GITHUB_OUTPUT"
+            echo "new_release_version=${NEW_VERSION}"  >> "$GITHUB_OUTPUT"
+            echo "new_release_git_tag=${NEW_TAG}"      >> "$GITHUB_OUTPUT"
+          else
+            echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build and Upload Assets
+    runs-on: ubuntu-latest
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
+    steps:
+      - name: Prepare GitHub Job
+        uses: PandasWhoCode/initialize-github-job@a57cd6d8d768b2f3c95334bdd4fa8c21609fc651 # v1.0.5
+        with:
+          checkout: 'true'
+          checkout-token: '${{ secrets.GITHUB_TOKEN }}'
+          setup-go: 'true'
+          go-version: '1.25'
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: Build release binaries
+        run: task build-release VERSION=${{ needs.release.outputs.new_release_version }}
+
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          tag_name: ${{ needs.release.outputs.new_release_git_tag }}
+          files: |
+            dist/dcocheck-*.tar.gz
+            dist/checksums.txt
+
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
+        run: task update-formula VERSION=${{ needs.release.outputs.new_release_version }} TAG=${{ needs.release.outputs.new_release_git_tag }} HOMEBREW_TAP_PAT="${HOMEBREW_TAP_PAT}"
+

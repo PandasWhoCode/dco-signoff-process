@@ -1,1 +1,6 @@
 .idea
+bin/
+dist/
+dcocheck/dcocheck
+dcocheck/coverage.out
+dcocheck/coverage.html
