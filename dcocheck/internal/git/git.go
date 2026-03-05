@@ -27,6 +27,20 @@ type Commit struct {
 // DCO sign-off regex: "Signed-off-by: Name <email>"
 var signoffRegex = regexp.MustCompile(`(?m)^Signed-off-by:\s+\S.*<\S+@\S+>`)
 
+// gitRevListCountOutputFn executes `git rev-list --count HEAD` and returns its
+// output. Replaced in tests to exercise the non-integer output code path.
+var gitRevListCountOutputFn = func(repoPath string) ([]byte, error) {
+	// #nosec G204 - repoPath is validated by the caller
+	return exec.Command("git", "-C", filepath.Clean(repoPath), "rev-list", "--count", "HEAD").Output()
+}
+
+// commitCommandFn builds the git commit command used for retroactive sign-off.
+// Replaced in tests to exercise the success code path without a real GPG key.
+var commitCommandFn = func(repoPath, message string) *exec.Cmd {
+	// #nosec G204 - message is generated internally from validated commit data
+	return exec.Command("git", "-C", filepath.Clean(repoPath), "commit", "-s", "-S", "--allow-empty", "-m", message)
+}
+
 // ValidateRepo checks if the given path is a valid git repository
 func ValidateRepo(repoPath string) error {
 	clean := filepath.Clean(repoPath)
@@ -63,10 +77,7 @@ func GetCommitsWithoutDCO(repoPath string) ([]Commit, error) {
 
 // GetTotalCommitCount returns the total number of commits in the repository
 func GetTotalCommitCount(repoPath string) (int, error) {
-	clean := filepath.Clean(repoPath)
-	// #nosec G204
-	cmd := exec.Command("git", "-C", clean, "rev-list", "--count", "HEAD")
-	out, err := cmd.Output()
+	out, err := gitRevListCountOutputFn(repoPath)
 	if err != nil {
 		// If no commits yet, return 0
 		return 0, nil
@@ -110,9 +121,7 @@ func GetGitUserName(repoPath string) (string, error) {
 // retroactive DCO sign-off message. Requires the user to have a GPG key
 // configured (git commit.gpgsign or -S).
 func CreateRetroactiveSignoffCommit(repoPath, message string) error {
-	clean := filepath.Clean(repoPath)
-	// #nosec G204 - message is generated internally from validated commit data
-	cmd := exec.Command("git", "-C", clean, "commit", "-s", "-S", "--allow-empty", "-m", message)
+	cmd := commitCommandFn(repoPath, message)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to create retroactive signoff commit: %w\n%s", err, strings.TrimSpace(string(out)))

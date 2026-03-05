@@ -1,6 +1,7 @@
 package checker
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,40 @@ func TestCheck_InvalidRepo(t *testing.T) {
 	_, err := Check("/tmp/not-a-repo-dcocheck-xyz", Options{})
 	if err == nil {
 		t.Error("expected error for invalid repo, got nil")
+	}
+}
+
+func TestCheck_GetCommitsError(t *testing.T) {
+	dir := initRepo(t)
+	orig := getCommitsWithoutDCOFn
+	getCommitsWithoutDCOFn = func(_ string) ([]git.Commit, error) {
+		return nil, fmt.Errorf("injected git log error")
+	}
+	t.Cleanup(func() { getCommitsWithoutDCOFn = orig })
+
+	_, err := Check(dir, Options{})
+	if err == nil {
+		t.Error("expected error from injected GetCommitsWithoutDCO, got nil")
+	}
+	if !strings.Contains(err.Error(), "injected git log error") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCheck_GetTotalCountError(t *testing.T) {
+	dir := initRepo(t)
+	orig := getTotalCommitCountFn
+	getTotalCommitCountFn = func(_ string) (int, error) {
+		return 0, fmt.Errorf("injected count error")
+	}
+	t.Cleanup(func() { getTotalCommitCountFn = orig })
+
+	_, err := Check(dir, Options{})
+	if err == nil {
+		t.Error("expected error from injected GetTotalCommitCount, got nil")
+	}
+	if !strings.Contains(err.Error(), "injected count error") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 

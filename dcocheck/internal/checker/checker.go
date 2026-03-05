@@ -27,19 +27,27 @@ type Options struct {
 	DryRun bool
 }
 
+// getCommitsWithoutDCOFn is the function used to retrieve commits missing DCO
+// sign-off. Replaced in tests to exercise error paths without real git.
+var getCommitsWithoutDCOFn = git.GetCommitsWithoutDCO
+
+// getTotalCommitCountFn is the function used to retrieve the total commit count.
+// Replaced in tests to exercise error paths without real git.
+var getTotalCommitCountFn = git.GetTotalCommitCount
+
 // Check performs a DCO check on the given repository
 func Check(repoPath string, opts Options) (*Result, error) {
 	if err := git.ValidateRepo(repoPath); err != nil {
 		return nil, err
 	}
 
-	commits, err := git.GetCommitsWithoutDCO(repoPath)
+	commits, err := getCommitsWithoutDCOFn(repoPath)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get total commit count separately
-	totalCommits, err := git.GetTotalCommitCount(repoPath)
+	totalCommits, err := getTotalCommitCountFn(repoPath)
 	if err != nil {
 		return nil, err
 	}

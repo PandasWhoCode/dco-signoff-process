@@ -68,7 +68,11 @@ var getGitUserNameFn = git.GetGitUserName
 // success paths without requiring a GPG key.
 var createRetroactiveSignoffCommitFn = git.CreateRetroactiveSignoffCommit
 
-func run(args []string, stdout, stderr *os.File, stdin io.Reader) int {
+// osExit is the function used to terminate the process. Replaced in tests to
+// prevent os.Exit from killing the test binary.
+var osExit = os.Exit
+
+func run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	fs := flag.NewFlagSet("dcocheck", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -214,5 +218,5 @@ func writeToFile(path string, lines []string) error {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Stdin))
+	osExit(run(os.Args[1:], os.Stdout, os.Stderr, os.Stdin))
 }

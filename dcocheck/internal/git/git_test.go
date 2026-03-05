@@ -365,6 +365,39 @@ func TestGetCommitDetails_TooShortHash(t *testing.T) {
 	}
 }
 
+func TestGetCommitDetails_ValidHashNotInRepo(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "file.txt", "init")
+	// Valid 40-char hex hash that does not exist in this repository.
+	_, err := GetCommitDetails(dir, "abcdef1234567890abcdef1234567890abcdef12")
+	if err == nil {
+		t.Error("expected error for valid-format hash not present in repo, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get commit details") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetTotalCommitCount – Sscanf error path
+// ---------------------------------------------------------------------------
+
+func TestGetTotalCommitCount_NonNumericOutput(t *testing.T) {
+	orig := gitRevListCountOutputFn
+	gitRevListCountOutputFn = func(_ string) ([]byte, error) {
+		return []byte("not-a-number\n"), nil
+	}
+	t.Cleanup(func() { gitRevListCountOutputFn = orig })
+
+	count, err := GetTotalCommitCount(".")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 for non-numeric git output, got %d", count)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GetGitUserName
 // ---------------------------------------------------------------------------
@@ -401,5 +434,18 @@ func TestCreateRetroactiveSignoffCommit_InvalidRepo(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to create retroactive signoff commit") {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestCreateRetroactiveSignoffCommit_Success(t *testing.T) {
+	// Replace the commit command with `true` so no real GPG key is required.
+	orig := commitCommandFn
+	commitCommandFn = func(_, _ string) *exec.Cmd {
+		return exec.Command("true")
+	}
+	t.Cleanup(func() { commitCommandFn = orig })
+
+	if err := CreateRetroactiveSignoffCommit(".", "test message"); err != nil {
+		t.Errorf("unexpected error from mocked commit: %v", err)
 	}
 }

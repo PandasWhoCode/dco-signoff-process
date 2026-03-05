@@ -12,7 +12,8 @@ output compatible with the retroactive DCO sign-off process described in [PROCES
 **Homebrew (macOS / Linux)**
 
 ```bash
-brew install --formula https://raw.githubusercontent.com/PandasWhoCode/dco-signoff-process/main/Formula/dcocheck.rb
+brew tap PandasWhoCode/tools
+brew install dcocheck
 ```
 
 **go install**
@@ -113,5 +114,5 @@ See [PROCESS.md](PROCESS.md) for the complete retroactive sign-off workflow.
 
 ### Developer Documentation
 
-See [DEVELOPER.md](DEVELOPER.md) for build instructions, testing, and release process.
+See [DEVELOPER.md](DEVELOPER.md) for build instructions, testing, release process, and the 100% test coverage standard.
 

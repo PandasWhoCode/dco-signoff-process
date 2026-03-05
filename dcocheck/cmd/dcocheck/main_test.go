@@ -546,6 +546,13 @@ func TestRun_SignoffCommitError(t *testing.T) {
 // writeToFile
 // ---------------------------------------------------------------------------
 
+// errWriterIO is an io.Writer that always fails.
+type errWriterIO struct{}
+
+func (e *errWriterIO) Write(_ []byte) (int, error) {
+	return 0, io.ErrClosedPipe
+}
+
 func TestWriteToFile_Success(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "dcocheck-write-*.txt")
 	if err != nil {
@@ -575,5 +582,60 @@ func TestWriteToFile_InvalidPath(t *testing.T) {
 	err := writeToFile("/no/such/directory/file.txt", []string{"line"})
 	if err == nil {
 		t.Error("expected error for invalid path, got nil")
+	}
+}
+
+func TestWriteToFile_WriteFails(t *testing.T) {
+	// /dev/full always returns ENOSPC on write (Linux only).
+	if _, statErr := os.Stat("/dev/full"); os.IsNotExist(statErr) {
+		t.Skip("/dev/full not available on this OS")
+	}
+	err := writeToFile("/dev/full", []string{"line"})
+	if err == nil {
+		t.Error("expected error when writing to /dev/full (ENOSPC), got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+
+func TestMain_CallsRun(t *testing.T) {
+	orig := osExit
+	var captured int
+	osExit = func(code int) { captured = code }
+	t.Cleanup(func() { osExit = orig })
+
+	origArgs := os.Args
+	os.Args = []string{"dcocheck", "--version"}
+	t.Cleanup(func() { os.Args = origArgs })
+
+	main()
+	if captured != 0 {
+		t.Errorf("expected exit code 0 from --version, got %d", captured)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// run – pager.Display error path
+// ---------------------------------------------------------------------------
+
+func TestRun_DisplayWriteError(t *testing.T) {
+	dir := initRepo(t)
+	addCommit(t, dir, "a.txt", "feat: no signoff")
+
+	_, _, errR, errW := captureFiles(t)
+	defer errR.Close()
+
+	// Pass a failing writer as stdout so that pager.Display returns an error.
+	code := run([]string{dir}, &errWriterIO{}, errW, strings.NewReader(""))
+	errW.Close()
+
+	if code != 2 {
+		t.Errorf("expected exit code 2 when stdout write fails, got %d", code)
+	}
+	errOut := readPipe(errR)
+	if !strings.Contains(errOut, "Error displaying output") {
+		t.Errorf("expected display error message, got: %s", errOut)
 	}
 }

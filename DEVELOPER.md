@@ -171,8 +171,9 @@ cd dcocheck && go tool cover -func=coverage.out
 cd dcocheck && go tool cover -html=coverage.out -o coverage.html
 ```
 
-Target coverage is ≥95% overall. The `main()` function itself is excluded from coverage
-(it calls `os.Exit` and is not unit-testable), but `run()` is fully tested.
+The project maintains **100% statement, branch, and decision coverage** across all packages.
+Every code path — including all error branches, the `main()` entry point, and injected-function
+test paths — is verified by unit tests.
 
 ## Linting
 
@@ -204,8 +205,7 @@ triggered on every push to `main`. **Do not create tags or edit the version cons
    - **`build` job** – only runs when a new release was published:
      - Builds `linux/darwin × amd64/arm64` binaries via `task build-release`
      - Uploads `.tar.gz` archives and `checksums.txt` to the GitHub Release
-     - Updates `Formula/dcocheck.rb` with the new version and SHA256 checksums via `task update-formula`
-     - Pushes the updated formula back to `main` with `[skip ci]`
+     - Updates `Formula/dcocheck.rb` and pushes it to the `PandasWhoCode/homebrew-tools` tap via `task update-formula` (uses `HOMEBREW_TAP_PAT` secret)
 
 ### Conventional Commit Examples
 
@@ -218,9 +218,18 @@ git commit -s -S -m "chore(deps): bump golang.org/x/term"  # no release
 
 ## Homebrew Formula
 
-`Formula/dcocheck.rb` is updated automatically during the release workflow. The
-`PLACEHOLDER_*_SHA256` values are replaced with actual SHA256 checksums of the
-release archives.
+`Formula/dcocheck.rb` is updated automatically during the release workflow. After each
+release, the `update-formula` Taskfile task clones the
+[PandasWhoCode/homebrew-tools](https://github.com/PandasWhoCode/homebrew-tools) tap
+repository, patches the version and SHA256 checksums, and pushes the change to its
+`main` branch using the `HOMEBREW_TAP_PAT` secret.
+
+To install via Homebrew after a release:
+
+```bash
+brew tap PandasWhoCode/tools
+brew install dcocheck
+```
 
 To test the formula locally after a release:
 

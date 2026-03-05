@@ -38,6 +38,28 @@ func TestGetPageSize(t *testing.T) {
 	}
 }
 
+func TestGetPageSize_WithTerminalSize(t *testing.T) {
+	orig := getTerminalSizeFn
+	getTerminalSizeFn = func() (int, int, error) { return 80, 30, nil }
+	t.Cleanup(func() { getTerminalSizeFn = orig })
+
+	size := getPageSize()
+	if size != 28 { // 30 - 2
+		t.Errorf("expected 28 (30-2), got %d", size)
+	}
+}
+
+func TestGetPageSize_SmallTerminal(t *testing.T) {
+	orig := getTerminalSizeFn
+	getTerminalSizeFn = func() (int, int, error) { return 80, 3, nil }
+	t.Cleanup(func() { getTerminalSizeFn = orig })
+
+	size := getPageSize()
+	if size != defaultPageSize {
+		t.Errorf("expected defaultPageSize %d for height<=3, got %d", defaultPageSize, size)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Display - non-interactive
 // ---------------------------------------------------------------------------
@@ -179,5 +201,27 @@ func TestDisplay_Interactive_MultiPage_Quit(t *testing.T) {
 	lineCount := strings.Count(buf.String(), "\n")
 	if lineCount > defaultPageSize+1 {
 		t.Errorf("expected at most %d lines printed, got %d", defaultPageSize, lineCount)
+	}
+}
+
+func TestDisplay_Interactive_WriteError(t *testing.T) {
+	// Set up stdinOverride so the interactive path doesn't block on real stdin.
+	oldStdin := stdinOverride
+	r, w, err := pipeForTest(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdinOverride = r
+	defer func() {
+		stdinOverride = oldStdin
+		r.Close()
+	}()
+	go func() { defer w.Close() }()
+
+	// A single line is enough to enter the interactive write loop.
+	lines := []string{"line1"}
+	err = Display(lines, &errWriter{}, true)
+	if err == nil {
+		t.Error("expected write error from failing writer in interactive mode, got nil")
 	}
 }
