@@ -83,6 +83,29 @@ task build-all
 # Output in dist/: dcocheck-{linux,darwin}-{amd64,arm64}
 ```
 
+## Usage
+
+```
+dcocheck [OPTIONS] [PATH TO REPO]
+
+Options:
+  -d, --dry-run        Display results but always exit 0 (suppresses CI failure)
+  -o, --output FILE    Write results to FILE in addition to stdout
+  -h, --help           Show this help message
+  -v, --version        Print version and exit
+
+Arguments:
+  PATH TO REPO         Path to the git repository to check (default: current directory)
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0`  | No DCO issues found, retroactive sign-off completed, or `--dry-run` mode |
+| `1`  | One or more commits are missing DCO sign-off (no action taken) |
+| `2`  | An error occurred (invalid repo path, git failure, etc.) |
+
 ## Running
 
 ```bash
@@ -94,10 +117,37 @@ task build-all
 
 # Dry run (show results but exit 0)
 ./bin/dcocheck --dry-run /path/to/repo
+./bin/dcocheck -d /path/to/repo
 
 # Write results to a file
 ./bin/dcocheck --output results.txt /path/to/repo
+./bin/dcocheck -o results.txt /path/to/repo
+
+# Print version
+./bin/dcocheck --version
 ```
+
+### Interactive Retroactive Sign-off
+
+When `dcocheck` finds non-compliant commits in an interactive terminal (and `--dry-run` is not set),
+it prompts:
+
+```
+Would you like to perform retroactive DCO sign-off for the listed commits? [y/N]:
+```
+
+If you answer `y`, it reads your name from `git config user.name` and creates a GPG-signed empty
+commit with the message:
+
+```
+I, <First Name> <Last Name>, retroactively sign off on these commits:
+
+commit <short-hash> <subject>
+…
+```
+
+> **Note:** Requires a GPG key configured for signing — see
+> `git config user.signingkey`.
 
 ## Running Tests
 
@@ -134,28 +184,37 @@ cd dcocheck && go vet ./...
 
 ## Releasing a New Version
 
-1. Update the `version` constant in `dcocheck/cmd/dcocheck/main.go`:
+Releases are fully automated via [semantic-release](https://semantic-release.gitbook.io/) and
+triggered on every push to `main`. **Do not create tags or edit the version constant manually.**
 
-   ```go
-   const version = "1.2.0"
-   ```
+### How it works
 
-2. Commit and push the change.
+1. **Commit to `main`** using [Conventional Commits](https://www.conventionalcommits.org/):
+   - `fix: …` → patch release (e.g. `1.0.0` → `1.0.1`)
+   - `feat: …` → minor release (e.g. `1.0.0` → `1.1.0`)
+   - `feat!: …` or a commit body containing `BREAKING CHANGE:` → major release (e.g. `1.0.0` → `2.0.0`)
+   - Other types (`chore:`, `docs:`, `refactor:`, `test:`, etc.) do **not** trigger a release.
 
-3. Create and push a git tag:
+2. **The CI pipeline** (`.github/workflows/release.yml`) runs automatically:
+   - **`test` job** – runs `task test` to ensure all tests pass
+   - **`release` job** – runs `npx semantic-release`, which:
+     - Determines the next version from conventional commit messages
+     - Creates and pushes a git tag (e.g. `v1.2.0`)
+     - Creates a GitHub Release with generated release notes
+   - **`build` job** – only runs when a new release was published:
+     - Builds `linux/darwin × amd64/arm64` binaries via `task build-release`
+     - Uploads `.tar.gz` archives and `checksums.txt` to the GitHub Release
+     - Updates `Formula/dcocheck.rb` with the new version and SHA256 checksums via `task update-formula`
+     - Pushes the updated formula back to `main` with `[skip ci]`
 
-   ```bash
-   git tag -s v1.2.0 -m "Release v1.2.0"
-   git push origin v1.2.0
-   ```
+### Conventional Commit Examples
 
-4. The `.github/workflows/release.yml` workflow will automatically:
-   - Run all tests
-   - Build binaries for linux/darwin × amd64/arm64
-   - Create a GitHub Release with the tag
-   - Upload `.tar.gz` archives and `checksums.txt`
-   - Update `Formula/dcocheck.rb` with the new version and SHA256 checksums
-   - Push the updated formula back to the repository
+```bash
+git commit -s -S -m "fix: handle repos with no commits gracefully"
+git commit -s -S -m "feat: add --since flag to limit commit range"
+git commit -s -S -m "feat!: rename --dry-run to --check"   # breaking change – major bump
+git commit -s -S -m "chore(deps): bump golang.org/x/term"  # no release
+```
 
 ## Homebrew Formula
 
