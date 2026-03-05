@@ -101,5 +101,7 @@ jobs:
             dist/checksums.txt
 
       - name: Update Homebrew formula
-        run: task update-formula VERSION=${{ needs.release.outputs.new_release_version }} TAG=${{ needs.release.outputs.new_release_git_tag }}
+        env:
+          HOMEBREW_TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
+        run: task update-formula VERSION=${{ needs.release.outputs.new_release_version }} TAG=${{ needs.release.outputs.new_release_git_tag }} HOMEBREW_TAP_PAT="${HOMEBREW_TAP_PAT}"
 

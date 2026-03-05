@@ -63,9 +63,9 @@ tasks:
           cd ../dist && sha256sum dcocheck-*.tar.gz > checksums.txt
 
   update-formula:
-    desc: "Update Homebrew formula version and SHA256 checksums from dist/. Requires VERSION and TAG variables. NOTE: Intended for CI/Linux environments (uses sha256sum and sed -i)."
+    desc: "Update Homebrew formula in the PandasWhoCode/homebrew-tools tap. Requires VERSION, TAG, and HOMEBREW_TAP_PAT variables. NOTE: Intended for CI/Linux environments (uses sha256sum and sed -i)."
     requires:
-      vars: [VERSION, TAG]
+      vars: [VERSION, TAG, HOMEBREW_TAP_PAT]
     cmds:
       - |
           set -e
@@ -73,15 +73,19 @@ tasks:
           DARWIN_ARM64_SHA=$(sha256sum dist/dcocheck-darwin-arm64.tar.gz | awk '{print $1}')
           LINUX_AMD64_SHA=$(sha256sum  dist/dcocheck-linux-amd64.tar.gz  | awk '{print $1}')
           LINUX_ARM64_SHA=$(sha256sum  dist/dcocheck-linux-arm64.tar.gz  | awk '{print $1}')
-          sed -i "s/version \"[^\"]*\"/version \"{{.VERSION}}\"/"                                    Formula/dcocheck.rb
-          sed -i "s/sha256 \"[^\"]*\" # darwin-arm64/sha256 \"${DARWIN_ARM64_SHA}\" # darwin-arm64/" Formula/dcocheck.rb
-          sed -i "s/sha256 \"[^\"]*\" # darwin-amd64/sha256 \"${DARWIN_AMD64_SHA}\" # darwin-amd64/" Formula/dcocheck.rb
-          sed -i "s/sha256 \"[^\"]*\" # linux-arm64/sha256 \"${LINUX_ARM64_SHA}\" # linux-arm64/"   Formula/dcocheck.rb
-          sed -i "s/sha256 \"[^\"]*\" # linux-amd64/sha256 \"${LINUX_AMD64_SHA}\" # linux-amd64/"   Formula/dcocheck.rb
+          TAP_REPO_URL="https://x-access-token:{{.HOMEBREW_TAP_PAT}}@github.com/PandasWhoCode/homebrew-tools.git"
+          git clone --depth 1 "$TAP_REPO_URL" /tmp/homebrew-tools
+          cp Formula/dcocheck.rb /tmp/homebrew-tools/Formula/dcocheck.rb
+          sed -i "s/version \"[^\"]*\"/version \"{{.VERSION}}\"/"                                    /tmp/homebrew-tools/Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # darwin-arm64/sha256 \"${DARWIN_ARM64_SHA}\" # darwin-arm64/" /tmp/homebrew-tools/Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # darwin-amd64/sha256 \"${DARWIN_AMD64_SHA}\" # darwin-amd64/" /tmp/homebrew-tools/Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # linux-arm64/sha256 \"${LINUX_ARM64_SHA}\" # linux-arm64/"   /tmp/homebrew-tools/Formula/dcocheck.rb
+          sed -i "s/sha256 \"[^\"]*\" # linux-amd64/sha256 \"${LINUX_AMD64_SHA}\" # linux-amd64/"   /tmp/homebrew-tools/Formula/dcocheck.rb
+          cd /tmp/homebrew-tools
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/dcocheck.rb
-          git commit -m "chore(release): update Homebrew formula for {{.TAG}} [skip ci]"
+          git commit -m "chore(release): update dcocheck formula for {{.TAG}} [skip ci]"
           git push origin HEAD:main
 
   build-all:
