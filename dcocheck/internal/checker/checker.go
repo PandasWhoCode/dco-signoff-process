@@ -1,3 +1,9 @@
+// Package checker provides the DCO sign-off checking logic. It uses the git
+// package to retrieve commits from a repository, filters those that are missing
+// a "Signed-off-by:" trailer, and produces formatted output sections that mirror
+// the reveal_dco_issues bash script described in PROCESS.md. It also builds the
+// retroactive sign-off commit message used when the user elects to perform an
+// in-place retroactive DCO sign-off.
 package checker
 
 import (

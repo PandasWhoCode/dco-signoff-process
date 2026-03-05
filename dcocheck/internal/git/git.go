@@ -1,3 +1,9 @@
+// Package git provides helper functions for interacting with a local git
+// repository. All git operations are performed by calling the git binary via
+// exec.Command – never through shell interpolation – to prevent command-injection
+// vulnerabilities. The package validates commit hashes before use, cleans
+// user-supplied repository paths with filepath.Clean, and exposes helpers for
+// reading repository metadata, retrieving commit history, and creating commits.
 package git
 
 import (
